@@ -1,0 +1,1 @@
+export {TestCompiler} from "./tests/compiler";

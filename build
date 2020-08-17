@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Building HaGame3D"
+npm run build
+echo "Success"

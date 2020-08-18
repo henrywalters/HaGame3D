@@ -1,6 +1,6 @@
 {
   "name": "hagame",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A 3D Javascript HTML5 Game Engine",
   "main": "index.js",
   "types": "dist/index.d.ts",

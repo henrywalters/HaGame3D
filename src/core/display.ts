@@ -4,7 +4,7 @@ import {Shapes} from "../helpers/shapes";
 import {Functions} from "../math/functions";
 import readline = require('readline');
 import {Mesh, OBJ} from "webgl-obj-loader";
-import {NetworkFilesystem} from "..";
+import {AVERAGE_CALCULATION, NetworkFilesystem, Profiler, Timer} from "..";
 
 export interface Window {
     element: HTMLCanvasElement;
@@ -40,6 +40,13 @@ export class Display {
     private window: Window;
     private nfs: NetworkFilesystem;
 
+    private matrixProfile: Profiler<number>;
+    private bufferProfile: Profiler<number>;
+    private renderProfile: Profiler<number>;
+
+    private cameraPos: vec3;
+    private cameraRot: vec3;
+
     constructor(id: string) {
         this.nfs = new NetworkFilesystem();
         const canvas = document.getElementById(id) as HTMLCanvasElement;
@@ -66,28 +73,54 @@ export class Display {
             this.window.aspect,
             this.window.zNear,
             this.window.zFar);
+
+        this.matrixProfile = new Profiler<number>("Matrix Profiler", AVERAGE_CALCULATION);
+        this.bufferProfile = new Profiler<number>("Buffer Profiler", AVERAGE_CALCULATION);
+        this.renderProfile = new Profiler<number>("Render Profiler", AVERAGE_CALCULATION);
+
+        this.cameraPos = [0.0, 0.0, 0.0];
+        this.cameraRot = [0.0, 0.0, 0.0];
+
+        //this.matrixProfile.onProfile((avg) => { console.log("Matrix Time: " + avg + "ms")});
+        //this.renderProfile.onProfile((avg) => { console.log("Render Time: " + avg + "ms")});
+        //this.bufferProfile.onProfile((avg) => { console.log("Buffer Time: " + avg + "ms")});
+
+    }
+
+    public getCameraPos() {
+        return this.cameraPos;
+    }
+
+    public getCameraRot() {
+        return this.cameraRot;
+    }
+
+    public setCameraPos(pos: vec3) {
+        this.cameraPos = pos;
+    }
+
+    public moveCameraPos(delta: vec3) {
+        this.cameraPos[0] += delta[0];
+        this.cameraPos[1] += delta[1];
+        this.cameraPos[2] += delta[2];
+    }
+
+    public setCameraRot(rot: vec3) {
+        this.cameraRot = rot;
+    }
+
+    public rotateCamera(rot: vec3) {
+        this.cameraRot[0] += rot[0];
+        this.cameraRot[1] += rot[1];
+        this.cameraRot[2] += rot[2];
     }
 
     public getWindow(): Window {
         return this.window;
     }
 
-    public renderMesh(program: ShaderProgram, mesh: Mesh, position: vec3, rotation: number, rotationDir: vec3) {
-        const model = mat4.create();
-        const normal = mat4.create();
-
-        mat4.translate(model, model, position);
-        mat4.rotate(model, model, rotation, rotationDir);
-        mat4.invert(normal, model);
-        mat4.transpose(normal, normal);
-
+    public prepareMeshBuffers(program: ShaderProgram, mesh: Mesh) {
         this.gl.useProgram(program.program);
-
-        this.gl.uniformMatrix4fv(program.uniformLocations["projectionMatrix"], false, this.window.projectionMatrix);
-        this.gl.uniformMatrix4fv(program.uniformLocations["modelViewMatrix"], false, model);
-        this.gl.uniformMatrix4fv(program.uniformLocations["normalMatrix"], false, normal);
-
-        OBJ.initMeshBuffers(this.gl, mesh);
 
         // @ts-ignore
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, mesh.vertexBuffer);
@@ -105,6 +138,31 @@ export class Display {
 
         // @ts-ignore
         this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
+    }
+
+    public renderMesh(program: ShaderProgram, mesh: Mesh, position: vec3, rotation: number, rotationDir: vec3) {
+
+        const model = mat4.create();
+        const normal = mat4.create();
+        const view = mat4.create();
+
+        mat4.identity(view);
+        mat4.translate(view, view, this.cameraPos);
+        mat4.rotate(view, view, this.cameraRot[0], [1.0, 0.0, 0.0]);
+        mat4.rotate(view, view, this.cameraRot[1], [0.0, 1.0, 0.0]);
+        mat4.rotate(view, view, this.cameraRot[2], [0.0, 0.0, 1.0]);
+
+        mat4.invert(view, view);
+
+        mat4.translate(model, model, position);
+        mat4.rotate(model, model, rotation, rotationDir);
+        mat4.invert(normal, model);
+        mat4.transpose(normal, normal);
+
+        this.gl.uniformMatrix4fv(program.uniformLocations["projectionMatrix"], false, this.window.projectionMatrix);
+        this.gl.uniformMatrix4fv(program.uniformLocations["viewMatrix"], false, view);
+        this.gl.uniformMatrix4fv(program.uniformLocations["modelMatrix"], false, model);
+        this.gl.uniformMatrix4fv(program.uniformLocations["normalMatrix"], false, normal);
 
         // @ts-ignore
         this.gl.drawElements(this.gl.TRIANGLES, mesh.indexBuffer.numItems, this.gl.UNSIGNED_SHORT, 0);

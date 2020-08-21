@@ -7,6 +7,7 @@ import {Mesh, OBJ} from "webgl-obj-loader";
 import {AVERAGE_CALCULATION, NetworkFilesystem, Profiler, Timer} from "..";
 
 export interface Window {
+    container: HTMLDivElement;
     element: HTMLCanvasElement;
     context: WebGLRenderingContext;
     clearColor: Color;
@@ -49,12 +50,18 @@ export class Display {
 
     constructor(id: string) {
         this.nfs = new NetworkFilesystem();
-        const canvas = document.getElementById(id) as HTMLCanvasElement;
+        const container = document.getElementById(id) as HTMLDivElement;
+        const canvas = document.createElement('canvas');
+        canvas.height = container.clientHeight;
+        canvas.width = container.clientWidth;
+        container.append(canvas);
+
         const context = canvas.getContext("webgl");
         if (context === null) {
             throw new Error("Failed to initialize webGl context");
         }
         this.window = {
+            container,
             element: canvas,
             context,
             clearColor: Color.Black(),
@@ -64,15 +71,15 @@ export class Display {
             fieldOfView: 45 * Math.PI / 180,
             aspect: canvas.clientWidth / canvas.clientHeight,
             zNear: 0.1,
-            zFar: 100.0,
+            zFar: 1000.0,
             projectionMatrix: mat4.create(),
         };
 
-        mat4.perspective(this.window.projectionMatrix,
-            this.window.fieldOfView,
-            this.window.aspect,
-            this.window.zNear,
-            this.window.zFar);
+        this.updateWindow();
+
+        window.addEventListener("resize", () => {
+            this.updateWindow();
+        })
 
         this.matrixProfile = new Profiler<number>("Matrix Profiler", AVERAGE_CALCULATION);
         this.bufferProfile = new Profiler<number>("Buffer Profiler", AVERAGE_CALCULATION);
@@ -80,11 +87,23 @@ export class Display {
 
         this.cameraPos = [0.0, 0.0, 0.0];
         this.cameraRot = [0.0, 0.0, 0.0];
+    }
 
-        //this.matrixProfile.onProfile((avg) => { console.log("Matrix Time: " + avg + "ms")});
-        //this.renderProfile.onProfile((avg) => { console.log("Render Time: " + avg + "ms")});
-        //this.bufferProfile.onProfile((avg) => { console.log("Buffer Time: " + avg + "ms")});
+    private updateWindow() {
+        this.window.element.height = this.window.container.clientHeight;
+        this.window.element.width = this.window.container.clientWidth;
+        this.window.height = this.window.element.clientHeight;
+        this.window.width = this.window.element.clientWidth;
+        this.window.aspect = this.window.width / this.window.height;
 
+        mat4.perspective(this.window.projectionMatrix,
+            this.window.fieldOfView,
+            this.window.aspect,
+            this.window.zNear,
+            this.window.zFar);
+
+        console.log("resize");
+        console.log(this.window.width, this.window.height);
     }
 
     public getCameraPos() {
@@ -119,7 +138,7 @@ export class Display {
         return this.window;
     }
 
-    public prepareMeshBuffers(program: ShaderProgram, mesh: Mesh) {
+    public prepareMeshBuffers(program: ShaderProgram, mesh: Mesh, texture?: WebGLTexture) {
         this.gl.useProgram(program.program);
 
         // @ts-ignore
@@ -130,17 +149,35 @@ export class Display {
         this.gl.enableVertexAttribArray(program.attribLocations["vertexPosition"]);
 
         // @ts-ignore
+        if (mesh.textureBuffer && texture) {
+
+            // @ts-ignore
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, mesh.textureBuffer);
+            // @ts-ignore
+            this.gl.vertexAttribPointer(program.attribLocations["textureCoord"], mesh.textureBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
+            this.gl.enableVertexAttribArray(program.attribLocations["textureCoord"]);
+
+            this.gl.activeTexture(this.gl.TEXTURE0);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.uniform1i(program.uniformLocations["uSampler"], 0);
+        }
+
+        // @ts-ignore
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, mesh.normalBuffer);
 
         // @ts-ignore
         this.gl.vertexAttribPointer(program.attribLocations["vertexNormal"], mesh.normalBuffer.itemSize, this.gl.FLOAT, false, 0, 0);
         this.gl.enableVertexAttribArray(program.attribLocations["vertexNormal"]);
 
+        if (texture) {
+
+        }
+
         // @ts-ignore
         this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
     }
 
-    public renderMesh(program: ShaderProgram, mesh: Mesh, position: vec3, rotation: number, rotationDir: vec3) {
+    public renderMesh(program: ShaderProgram, mesh: Mesh, position: vec3, rotation: number, rotationDir: vec3, texture?: WebGLTexture) {
 
         const model = mat4.create();
         const normal = mat4.create();
@@ -158,6 +195,7 @@ export class Display {
         mat4.rotate(model, model, rotation, rotationDir);
         mat4.invert(normal, model);
         mat4.transpose(normal, normal);
+
 
         this.gl.uniformMatrix4fv(program.uniformLocations["projectionMatrix"], false, this.window.projectionMatrix);
         this.gl.uniformMatrix4fv(program.uniformLocations["viewMatrix"], false, view);
